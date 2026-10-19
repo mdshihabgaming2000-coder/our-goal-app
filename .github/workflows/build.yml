@@ -23,9 +23,16 @@ jobs:
         with:
           gradle-version: '8.2'
 
-      - name: Auto Fix Files & Build APK
+      - name: Auto Build OurGoal APK
         run: |
-          # ১. রুট সেটিংস তৈরি
+          # ১. gradle.properties তৈরি
+          cat << 'EOF' > gradle.properties
+          android.useAndroidX=true
+          android.nonTransitiveRClass=true
+          org.gradle.jvmargs=-Xmx2048m
+          EOF
+
+          # ২. settings.gradle.kts তৈরি
           cat << 'EOF' > settings.gradle.kts
           pluginManagement {
               repositories {
@@ -45,7 +52,7 @@ jobs:
           include(":app")
           EOF
 
-          # ২. রুট বিল্ড ফাইল তৈরি
+          # ৩. রুট build.gradle.kts তৈরি
           cat << 'EOF' > build.gradle.kts
           plugins {
               id("com.android.application") version "8.2.2" apply false
@@ -54,7 +61,8 @@ jobs:
           }
           EOF
 
-          # ৩. অ্যাপ বিল্ড ফাইল তৈরি
+          # ৪. app/build.gradle.kts (Java 17 ফিক্স সহ)
+          mkdir -p app/src/main/java/com/pro1/app
           cat << 'EOF' > app/build.gradle.kts
           plugins {
               id("com.android.application")
@@ -71,13 +79,22 @@ jobs:
                   versionCode = 1
                   versionName = "1.0.0"
               }
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
               buildFeatures { compose = true }
               composeOptions { kotlinCompilerExtensionVersion = "1.5.8" }
           }
           dependencies {
-              implementation(platform("androidx.compose:compose-bom:2024.02.00"))
+              val composeBom = platform("androidx.compose:compose-bom:2024.02.00")
+              implementation(composeBom)
               implementation("androidx.compose.ui:ui")
-              implementation("androidx.compose.material3:material3:1.2.0")
+              implementation("androidx.compose.ui:ui-graphics")
+              implementation("androidx.compose.material3:material3")
               implementation("androidx.activity:activity-compose:1.8.2")
               implementation(platform("com.google.firebase:firebase-bom:32.7.2"))
               implementation("com.google.firebase:firebase-auth-ktx")
@@ -85,8 +102,77 @@ jobs:
           }
           EOF
 
-          # ৪. সরাসরি APK বিল্ড কমান্ড
-          gradle assembleDebug --no-daemon --stacktrace
+          # ৫. সোর্স কোড ও অ্যান্ড্রয়েড ম্যানিফেস্ট নিশ্চিতকরণ
+          cat << 'EOF' > app/src/main/AndroidManifest.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <application
+                  android:allowBackup="true"
+                  android:label="Our Goal"
+                  android:supportsRtl="true"
+                  android:theme="@android:style/Theme.Material.Light.NoActionBar">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          cat << 'EOF' > app/src/main/java/com/pro1/app/MainActivity.kt
+          package com.pro1.app
+
+          import android.os.Bundle
+          import androidx.activity.ComponentActivity
+          import androidx.activity.compose.setContent
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.material3.*
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.graphics.Color
+          import androidx.compose.ui.text.font.FontWeight
+          import androidx.compose.ui.unit.dp
+          import androidx.compose.ui.unit.sp
+
+          class MainActivity : ComponentActivity() {
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  setContent {
+                      MaterialTheme {
+                          Surface(
+                              modifier = Modifier.fillMaxSize(),
+                              color = Color(0xFFF8FAFC)
+                          ) {
+                              Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                  Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                      Text(
+                                          text = "বাংলাদেশ সেবামূলক সংগঠন",
+                                          fontSize = 22.sp,
+                                          fontWeight = FontWeight.Bold,
+                                          color = Color(0xFF0284C7)
+                                      )
+                                      Spacer(modifier = Modifier.height(8.dp))
+                                      Text(
+                                          text = "মানুষের পাশে, মানবতার জন্য",
+                                          fontSize = 14.sp,
+                                          color = Color(0xFF64748B)
+                                      )
+                                  }
+                              }
+                          }
+                      }
+                  }
+              }
+          }
+          EOF
+
+          # ৬. ফাইনাল APK বিল্ড রান
+          gradle assembleDebug --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
